@@ -90,34 +90,64 @@ export class World {
         const x = (Math.random() - 0.5) * 6;
         const z = (Math.random() - 0.5) * 6;
 
+        // Try to infer extension for safer loader selection
+        const ext = (
+            asset.extension ||
+            asset.url.split('.').pop().split('?')[0]
+        || ''
+        ).toLowerCase();
+
         if (asset.type === 'model') {
+            // Only GLB / GLTF are supported by this loader right now
+            if (ext !== 'glb' && ext !== 'gltf') {
+                console.warn(
+                    '[World.spawnAsset] Unsupported model format for GLTFLoader:',
+                    ext,
+                    'from url:',
+                    asset.url,
+                    '— currently only .glb / .gltf are supported.'
+                );
+                return;
+            }
+
             const loader = new GLTFLoader();
-            loader.load(asset.url, (gltf) => {
-                const model = gltf.scene;
-                
-                // Auto-center and sit on floor
-                const box = new THREE.Box3().setFromObject(model);
-                const height = box.max.y - box.min.y;
-                const center = box.getCenter(new THREE.Vector3());
-                
-                model.position.sub(center); // Center pivot
-                model.position.y += height / 2; // Sit on ground
+            loader.load(
+                asset.url,
+                (gltf) => {
+                    const model = gltf.scene;
+                    
+                    // Auto-center and sit on floor
+                    const box = new THREE.Box3().setFromObject(model);
+                    const height = box.max.y - box.min.y;
+                    const center = box.getCenter(new THREE.Vector3());
+                    
+                    model.position.sub(center); // Center pivot
+                    model.position.y += height / 2; // Sit on ground
 
-                const wrapper = new THREE.Group();
-                wrapper.add(model);
-                wrapper.position.set(x, 0, z);
-                
-                // Shadow setup
-                model.traverse(node => {
-                    if (node.isMesh) {
-                        node.castShadow = true;
-                        node.receiveShadow = true;
-                    }
-                });
+                    const wrapper = new THREE.Group();
+                    wrapper.add(model);
+                    wrapper.position.set(x, 0, z);
+                    
+                    // Shadow setup
+                    model.traverse(node => {
+                        if (node.isMesh) {
+                            node.castShadow = true;
+                            node.receiveShadow = true;
+                        }
+                    });
 
-                this.scene.add(wrapper);
-                this.assets.push(wrapper);
-            });
+                    this.scene.add(wrapper);
+                    this.assets.push(wrapper);
+                },
+                undefined,
+                (error) => {
+                    console.error(
+                        '[World.spawnAsset] Failed to load GLTF model:',
+                        asset.url,
+                        error
+                    );
+                }
+            );
         } 
         else if (asset.type === 'image' || asset.type === 'texture') {
             const loader = new THREE.TextureLoader();
