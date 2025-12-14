@@ -4,10 +4,12 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
 
 export class World {
-    constructor(container) {
+    constructor(container, options = {}) {
         this.container = container;
         this.assets = [];
-        
+        this.sceneType = options.sceneType || 'outdoor';
+        this.plotSize = Math.max(6, options.plotSize || 10);
+
         // Scene Setup
         this.scene = new THREE.Scene();
         this.scene.background = new THREE.Color('#8ecae6'); // Sky Blue
@@ -35,9 +37,12 @@ export class World {
         this.controls.maxDistance = 30;
 
         // Environment
+        this.ground = null;
+        this.grid = null;
+        this.wallsGroup = null;
         this.setupLights();
-        this.setupGround();
-        
+        this.updateEnvironment(this.sceneType, this.plotSize);
+
         // Listeners
         window.addEventListener('resize', this.onWindowResize.bind(this));
         
@@ -63,9 +68,46 @@ export class World {
         this.scene.add(sun);
     }
 
-    setupGround() {
-        // Soft Grass / Floor
-        const geometry = new THREE.PlaneGeometry(100, 100);
+    // Remove old environment meshes safely
+    clearEnvironment() {
+        const removeMesh = (mesh) => {
+            if (!mesh) return;
+            this.scene.remove(mesh);
+            if (mesh.geometry) mesh.geometry.dispose();
+            if (mesh.material) {
+                if (Array.isArray(mesh.material)) {
+                    mesh.material.forEach(m => m.dispose && m.dispose());
+                } else {
+                    mesh.material.dispose && mesh.material.dispose();
+                }
+            }
+        };
+
+        removeMesh(this.ground);
+        this.ground = null;
+
+        if (this.grid) {
+            this.scene.remove(this.grid);
+            this.grid = null;
+        }
+
+        if (this.wallsGroup) {
+            this.scene.remove(this.wallsGroup);
+            this.wallsGroup.traverse((child) => {
+                if (child.isMesh) {
+                    if (child.geometry) child.geometry.dispose();
+                    if (child.material) child.material.dispose && child.material.dispose();
+                }
+            });
+            this.wallsGroup = null;
+        }
+    }
+
+    setupOutdoor() {
+        const size = this.plotSize;
+
+        // Ground
+        const geometry = new THREE.PlaneGeometry(size, size);
         const material = new THREE.MeshStandardMaterial({ 
             color: 0xa8d5ba, // Pastel Green
             roughness: 0.9,
@@ -75,21 +117,135 @@ export class World {
         ground.rotation.x = -Math.PI / 2;
         ground.receiveShadow = true;
         this.scene.add(ground);
+        this.ground = ground;
 
-        // Grid
-        const grid = new THREE.GridHelper(50, 50, 0xffffff, 0xffffff);
+        // Grid centered on origin
+        const divisions = Math.max(6, Math.round(size));
+        const grid = new THREE.GridHelper(size, divisions, 0xffffff, 0xffffff);
         grid.material.opacity = 0.3;
         grid.material.transparent = true;
         grid.position.y = 0.01;
         this.scene.add(grid);
+        this.grid = grid;
+    }
+
+    setupIndoor() {
+        const size = this.plotSize;
+        const wallHeight = 3;
+        const wallThickness = 0.2;
+        const doorWidth = Math.min(size * 0.4, 3);
+        const doorHeight = 2.2;
+
+        // Floor
+        const floorGeo = new THREE.PlaneGeometry(size, size);
+        const floorMat = new THREE.MeshStandardMaterial({
+            color: 0xd1d5db, // light grey
+            roughness: 0.9,
+            metalness: 0.0
+        });
+        const floor = new THREE.Mesh(floorGeo, floorMat);
+        floor.rotation.x = -Math.PI / 2;
+        floor.receiveShadow = true;
+        this.scene.add(floor);
+        this.ground = floor;
+
+        // Grid on floor for placement
+        const divisions = Math.max(6, Math.round(size));
+        const grid = new THREE.GridHelper(size, divisions, 0x9ca3af, 0x9ca3af);
+        grid.material.opacity = 0.3;
+        grid.material.transparent = true;
+        grid.position.y = 0.01;
+        this.scene.add(grid);
+        this.grid = grid;
+
+        // Walls
+        const walls = new THREE.Group();
+        const wallMat = new THREE.MeshStandardMaterial({
+            color: 0xe5e7eb,
+            roughness: 0.8,
+            metalness: 0.0
+        });
+
+        // Back wall (no door) - along X axis at -Z
+        const backGeo = new THREE.BoxGeometry(size, wallHeight, wallThickness);
+        const backWall = new THREE.Mesh(backGeo, wallMat);
+        backWall.position.set(0, wallHeight / 2, -size / 2);
+        backWall.castShadow = true;
+        backWall.receiveShadow = true;
+        walls.add(backWall);
+
+        // Left wall (no door) - along Z axis at -X
+        const leftGeo = new THREE.BoxGeometry(wallThickness, wallHeight, size);
+        const leftWall = new THREE.Mesh(leftGeo, wallMat);
+        leftWall.position.set(-size / 2, wallHeight / 2, 0);
+        leftWall.castShadow = true;
+        leftWall.receiveShadow = true;
+        walls.add(leftWall);
+
+        // Right wall (no door) - along Z axis at +X
+        const rightGeo = new THREE.BoxGeometry(wallThickness, wallHeight, size);
+        const rightWall = new THREE.Mesh(rightGeo, wallMat);
+        rightWall.position.set(size / 2, wallHeight / 2, 0);
+        rightWall.castShadow = true;
+        rightWall.receiveShadow = true;
+        walls.add(rightWall);
+
+        // Front wall with doorway: two segments
+        const sideLength = (size - doorWidth) / 2;
+
+        if (sideLength > 0) {
+            const frontSideGeo = new THREE.BoxGeometry(sideLength, wallHeight, wallThickness);
+
+            // Left front segment
+            const frontLeft = new THREE.Mesh(frontSideGeo, wallMat);
+            frontLeft.position.set(-size / 2 + sideLength / 2, wallHeight / 2, size / 2);
+            frontLeft.castShadow = true;
+            frontLeft.receiveShadow = true;
+            walls.add(frontLeft);
+
+            // Right front segment
+            const frontRight = new THREE.Mesh(frontSideGeo, wallMat);
+            frontRight.position.set(size / 2 - sideLength / 2, wallHeight / 2, size / 2);
+            frontRight.castShadow = true;
+            frontRight.receiveShadow = true;
+            walls.add(frontRight);
+        }
+
+        // Optional header above door (to avoid full floor-to-ceiling gap)
+        if (doorHeight < wallHeight) {
+            const headerHeight = wallHeight - doorHeight;
+            const headerGeo = new THREE.BoxGeometry(doorWidth, headerHeight, wallThickness);
+            const header = new THREE.Mesh(headerGeo, wallMat);
+            header.position.set(0, wallHeight - headerHeight / 2, size / 2);
+            header.castShadow = true;
+            header.receiveShadow = true;
+            walls.add(header);
+        }
+
+        this.scene.add(walls);
+        this.wallsGroup = walls;
+    }
+
+    updateEnvironment(sceneType, plotSize) {
+        this.sceneType = sceneType || this.sceneType;
+        this.plotSize = Math.max(6, plotSize || this.plotSize);
+
+        this.clearEnvironment();
+
+        if (this.sceneType === 'indoor') {
+            this.setupIndoor();
+        } else {
+            this.setupOutdoor();
+        }
     }
 
     spawnAsset(asset) {
         if (!asset || !asset.url) return;
 
-        // Random position near center
-        const x = (Math.random() - 0.5) * 6;
-        const z = (Math.random() - 0.5) * 6;
+        // Random position near center, within plot bounds
+        const half = this.plotSize / 2 - 1;
+        const x = (Math.random() * 2 - 1) * half;
+        const z = (Math.random() * 2 - 1) * half;
 
         // Try to infer extension for safer loader selection
         const ext = (
