@@ -1,7 +1,10 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
+import htm from 'htm';
 import { App } from './ui/App.js';
-import { dataManager } from './data/store.js';
+
+// Bind htm to React
+const html = htm.bind(React.createElement);
 
 console.log("Cozy Builder: Main module loaded.");
 
@@ -11,7 +14,8 @@ try {
         throw new Error("Root element not found");
     }
     const root = createRoot(rootElement);
-    root.render(<App />);
+    // Use html template literal instead of JSX
+    root.render(html`<${App} />`);
     console.log("Cozy Builder: UI Mounted successfully.");
 } catch (error) {
     console.error("Cozy Builder: Failed to mount UI", error);
