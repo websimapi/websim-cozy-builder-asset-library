@@ -1,5 +1,21 @@
 // Manages data synchronization and asset library
-const room = new WebsimSocket();
+
+// Ensure WebsimSocket exists or mock it for safety
+let room;
+try {
+    room = new WebsimSocket();
+} catch (e) {
+    console.error("WebsimSocket not found:", e);
+    // Mock for dev safety
+    room = {
+        collection: () => ({
+            filter: () => ({ getList: async () => [], subscribe: () => {} }),
+            create: async () => ({}),
+            update: async () => {},
+            subscribe: () => {}
+        })
+    };
+}
 
 class DataManager {
     constructor() {
