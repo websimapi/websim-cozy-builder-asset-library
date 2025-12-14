@@ -10,6 +10,14 @@ export class World {
         this.sceneType = options.sceneType || 'outdoor';
         this.plotSize = Math.max(6, options.plotSize || 10);
 
+        // Placement state
+        this.raycaster = new THREE.Raycaster();
+        this.mouse = new THREE.Vector2();
+        this.placement = {
+            asset: null,
+            preview: null,
+        };
+
         // Scene Setup
         this.scene = new THREE.Scene();
         this.scene.background = new THREE.Color('#8ecae6'); // Sky Blue
@@ -42,6 +50,12 @@ export class World {
         this.wallsGroup = null;
         this.setupLights();
         this.updateEnvironment(this.sceneType, this.plotSize);
+
+        // Pointer handlers for placement
+        this.handlePointerMove = this.handlePointerMove.bind(this);
+        this.handlePointerDown = this.handlePointerDown.bind(this);
+        this.renderer.domElement.addEventListener('pointermove', this.handlePointerMove);
+        this.renderer.domElement.addEventListener('pointerdown', this.handlePointerDown);
 
         // Listeners
         window.addEventListener('resize', this.onWindowResize.bind(this));
@@ -116,6 +130,7 @@ export class World {
         const ground = new THREE.Mesh(geometry, material);
         ground.rotation.x = -Math.PI / 2;
         ground.receiveShadow = true;
+        ground.name = 'ground';
         this.scene.add(ground);
         this.ground = ground;
 
@@ -146,6 +161,7 @@ export class World {
         const floor = new THREE.Mesh(floorGeo, floorMat);
         floor.rotation.x = -Math.PI / 2;
         floor.receiveShadow = true;
+        floor.name = 'ground';
         this.scene.add(floor);
         this.ground = floor;
 
@@ -239,13 +255,129 @@ export class World {
         }
     }
 
-    spawnAsset(asset) {
+    // --- Placement mode API ---
+
+    startPlacement(asset) {
+        this.placement.asset = asset || null;
+        if (!asset) {
+            this.clearPlacementPreview();
+            return;
+        }
+    }
+
+    clearPlacementPreview() {
+        if (this.placement.preview) {
+            this.scene.remove(this.placement.preview);
+            if (this.placement.preview.geometry) {
+                this.placement.preview.geometry.dispose();
+            }
+            if (this.placement.preview.material) {
+                this.placement.preview.material.dispose && this.placement.preview.material.dispose();
+            }
+            this.placement.preview = null;
+        }
+    }
+
+    ensurePlacementPreview() {
+        if (this.placement.preview) return;
+
+        // Simple generic preview: box for models, vertical plane for images
+        let geo;
+        if (this.placement.asset?.type === 'model') {
+            geo = new THREE.BoxGeometry(1, 1, 1);
+        } else {
+            geo = new THREE.PlaneGeometry(1.5, 1);
+        }
+        const mat = new THREE.MeshStandardMaterial({
+            color: 0x3182ce,
+            transparent: true,
+            opacity: 0.4,
+            depthWrite: false
+        });
+
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.receiveShadow = false;
+        mesh.castShadow = false;
+        mesh.name = 'placement_preview';
+
+        if (this.placement.asset?.type === 'image' || this.placement.asset?.type === 'texture') {
+            mesh.rotation.y = Math.PI; // face camera-ish
+        }
+
+        this.scene.add(mesh);
+        this.placement.preview = mesh;
+    }
+
+    handlePointerMove(event) {
+        if (!this.placement.asset || !this.ground) return;
+
+        const rect = this.renderer.domElement.getBoundingClientRect();
+        this.mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+        this.mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+        this.raycaster.setFromCamera(this.mouse, this.camera);
+        const intersects = this.raycaster.intersectObject(this.ground, true);
+
+        if (intersects.length === 0) return;
+
+        const point = intersects[0].point;
+
+        // Clamp point within plot size
+        const half = this.plotSize / 2 - 0.1;
+        point.x = Math.max(-half, Math.min(half, point.x));
+        point.z = Math.max(-half, Math.min(half, point.z));
+        point.y = 0;
+
+        this.ensurePlacementPreview();
+        if (this.placement.preview) {
+            this.placement.preview.position.copy(point);
+            if (this.placement.asset?.type === 'image' || this.placement.asset?.type === 'texture') {
+                this.placement.preview.position.y = 1; // lift images a bit
+            } else {
+                this.placement.preview.position.y = 0.5; // generic height for models
+            }
+        }
+    }
+
+    handlePointerDown(event) {
+        if (!this.placement.asset || !this.ground) return;
+
+        const rect = this.renderer.domElement.getBoundingClientRect();
+        this.mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+        this.mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+        this.raycaster.setFromCamera(this.mouse, this.camera);
+        const intersects = this.raycaster.intersectObject(this.ground, true);
+
+        if (intersects.length === 0) return;
+
+        const point = intersects[0].point;
+
+        // Clamp within plot
+        const half = this.plotSize / 2 - 0.1;
+        point.x = Math.max(-half, Math.min(half, point.x));
+        point.z = Math.max(-half, Math.min(half, point.z));
+        point.y = 0;
+
+        const assetToPlace = this.placement.asset;
+        this.startPlacement(null); // clear placement state and preview
+
+        this.spawnAsset(assetToPlace, point);
+    }
+
+    spawnAsset(asset, position) {
         if (!asset || !asset.url) return;
 
-        // Random position near center, within plot bounds
-        const half = this.plotSize / 2 - 1;
-        const x = (Math.random() * 2 - 1) * half;
-        const z = (Math.random() * 2 - 1) * half;
+        // Position: provided by placement, or random near center
+        let x, z;
+        if (position) {
+            x = position.x;
+            z = position.z;
+        } else {
+            const half = this.plotSize / 2 - 1;
+            x = (Math.random() * 2 - 1) * half;
+            z = (Math.random() * 2 - 1) * half;
+        }
 
         // Try to infer extension for safer loader selection
         const ext = (

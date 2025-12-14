@@ -32,7 +32,8 @@ export function App() {
 
     const handleSpawn = (asset) => {
         if (worldRef.current) {
-            worldRef.current.spawnAsset(asset);
+            // Enter placement mode instead of spawning immediately
+            worldRef.current.startPlacement(asset);
         }
     };
 
