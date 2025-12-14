@@ -74,7 +74,7 @@ export function SceneControls({ sceneType, setSceneType, plotSize, setPlotSize }
                         width: '60px',
                         padding: '4px 6px',
                         borderRadius: '8px',
-                        border: '1px solid '#cbd5e0',
+                        border: '1px solid #cbd5e0',
                         fontSize: '12px'
                     }}
                 />
