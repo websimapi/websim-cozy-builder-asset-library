@@ -16,6 +16,7 @@ export function App() {
     const worldRef = useRef(null);
     const [sceneType, setSceneType] = useState('outdoor'); // 'outdoor' | 'indoor'
     const [plotSize, setPlotSize] = useState(10); // min 6
+    const [selectedAsset, setSelectedAsset] = useState(null);
 
     useEffect(() => {
         const container = document.getElementById('canvas-container');
@@ -30,16 +31,16 @@ export function App() {
         }
     }, [sceneType, plotSize]);
 
-    const handleSpawn = (asset) => {
+    const handleAssetSelected = (asset) => {
+        setSelectedAsset(asset);
         if (worldRef.current) {
-            // Enter placement mode instead of spawning immediately
-            worldRef.current.startPlacement(asset);
+            worldRef.current.setPlacementAsset(asset);
         }
     };
 
     return html`
         <div>
-            <${AssetLibrary} onSpawn=${handleSpawn} />
+            <${AssetLibrary} onAssetSelected=${handleAssetSelected} selectedAsset=${selectedAsset} />
             <${SceneControls}
                 sceneType=${sceneType}
                 setSceneType=${setSceneType}

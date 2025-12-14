@@ -10,13 +10,10 @@ export class World {
         this.sceneType = options.sceneType || 'outdoor';
         this.plotSize = Math.max(6, options.plotSize || 10);
 
-        // Placement state
+        this.placementAsset = null;
+        this.previewMesh = null;
         this.raycaster = new THREE.Raycaster();
         this.mouse = new THREE.Vector2();
-        this.placement = {
-            asset: null,
-            preview: null,
-        };
 
         // Scene Setup
         this.scene = new THREE.Scene();
@@ -51,11 +48,11 @@ export class World {
         this.setupLights();
         this.updateEnvironment(this.sceneType, this.plotSize);
 
-        // Pointer handlers for placement
-        this.handlePointerMove = this.handlePointerMove.bind(this);
-        this.handlePointerDown = this.handlePointerDown.bind(this);
-        this.renderer.domElement.addEventListener('pointermove', this.handlePointerMove);
-        this.renderer.domElement.addEventListener('pointerdown', this.handlePointerDown);
+        // Pointer interaction for placement
+        this._handlePointerMove = this.handlePointerMove.bind(this);
+        this._handleClick = this.handleClick.bind(this);
+        this.renderer.domElement.addEventListener('pointermove', this._handlePointerMove);
+        this.renderer.domElement.addEventListener('click', this._handleClick);
 
         // Listeners
         window.addEventListener('resize', this.onWindowResize.bind(this));
@@ -130,7 +127,6 @@ export class World {
         const ground = new THREE.Mesh(geometry, material);
         ground.rotation.x = -Math.PI / 2;
         ground.receiveShadow = true;
-        ground.name = 'ground';
         this.scene.add(ground);
         this.ground = ground;
 
@@ -161,7 +157,6 @@ export class World {
         const floor = new THREE.Mesh(floorGeo, floorMat);
         floor.rotation.x = -Math.PI / 2;
         floor.receiveShadow = true;
-        floor.name = 'ground';
         this.scene.add(floor);
         this.ground = floor;
 
@@ -253,137 +248,127 @@ export class World {
         } else {
             this.setupOutdoor();
         }
-    }
 
-    // --- Placement mode API ---
-
-    startPlacement(asset) {
-        this.placement.asset = asset || null;
-        if (!asset) {
-            this.clearPlacementPreview();
-            return;
+        if (this.placementAsset) {
+            this.ensurePlacementPreview();
         }
     }
 
-    clearPlacementPreview() {
-        if (this.placement.preview) {
-            this.scene.remove(this.placement.preview);
-            if (this.placement.preview.geometry) {
-                this.placement.preview.geometry.dispose();
-            }
-            if (this.placement.preview.material) {
-                this.placement.preview.material.dispose && this.placement.preview.material.dispose();
-            }
-            this.placement.preview = null;
+    setPlacementAsset(asset) {
+        this.placementAsset = asset || null;
+        if (this.placementAsset) {
+            this.ensurePlacementPreview();
+        } else {
+            this.hidePlacementPreview();
         }
     }
 
     ensurePlacementPreview() {
-        if (this.placement.preview) return;
-
-        // Simple generic preview: box for models, vertical plane for images
-        let geo;
-        if (this.placement.asset?.type === 'model') {
-            geo = new THREE.BoxGeometry(1, 1, 1);
-        } else {
-            geo = new THREE.PlaneGeometry(1.5, 1);
+        if (this.previewMesh) {
+            this.previewMesh.visible = true;
+            return;
         }
-        const mat = new THREE.MeshStandardMaterial({
-            color: 0x3182ce,
+
+        const size = 1;
+        const geo = new THREE.PlaneGeometry(size, size);
+        const mat = new THREE.MeshBasicMaterial({
+            color: 0x38b2ac,
             transparent: true,
             opacity: 0.4,
-            depthWrite: false
+            side: THREE.DoubleSide
         });
+        const preview = new THREE.Mesh(geo, mat);
+        preview.rotation.x = -Math.PI / 2;
+        preview.position.y = 0.02;
+        preview.visible = false;
+        this.scene.add(preview);
+        this.previewMesh = preview;
+    }
 
-        const mesh = new THREE.Mesh(geo, mat);
-        mesh.receiveShadow = false;
-        mesh.castShadow = false;
-        mesh.name = 'placement_preview';
-
-        if (this.placement.asset?.type === 'image' || this.placement.asset?.type === 'texture') {
-            mesh.rotation.y = Math.PI; // face camera-ish
+    hidePlacementPreview() {
+        if (this.previewMesh) {
+            this.previewMesh.visible = false;
         }
-
-        this.scene.add(mesh);
-        this.placement.preview = mesh;
     }
 
     handlePointerMove(event) {
-        if (!this.placement.asset || !this.ground) return;
+        if (!this.placementAsset || !this.ground || !this.previewMesh) return;
 
         const rect = this.renderer.domElement.getBoundingClientRect();
         this.mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
         this.mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
 
         this.raycaster.setFromCamera(this.mouse, this.camera);
-        const intersects = this.raycaster.intersectObject(this.ground, true);
+        const intersects = this.raycaster.intersectObject(this.ground, false);
 
-        if (intersects.length === 0) return;
+        if (intersects.length > 0) {
+            const point = intersects[0].point;
 
-        const point = intersects[0].point;
+            // clamp to plotSize area
+            const half = this.plotSize / 2;
+            let x = THREE.MathUtils.clamp(point.x, -half, half);
+            let z = THREE.MathUtils.clamp(point.z, -half, half);
 
-        // Clamp point within plot size
-        const half = this.plotSize / 2 - 0.1;
-        point.x = Math.max(-half, Math.min(half, point.x));
-        point.z = Math.max(-half, Math.min(half, point.z));
-        point.y = 0;
+            // optional simple grid snap
+            const snap = 0.5;
+            x = Math.round(x / snap) * snap;
+            z = Math.round(z / snap) * snap;
 
-        this.ensurePlacementPreview();
-        if (this.placement.preview) {
-            this.placement.preview.position.copy(point);
-            if (this.placement.asset?.type === 'image' || this.placement.asset?.type === 'texture') {
-                this.placement.preview.position.y = 1; // lift images a bit
-            } else {
-                this.placement.preview.position.y = 0.5; // generic height for models
-            }
+            this.previewMesh.position.set(x, 0.02, z);
+            this.previewMesh.visible = true;
+        } else {
+            this.previewMesh.visible = false;
         }
     }
 
-    handlePointerDown(event) {
-        if (!this.placement.asset || !this.ground) return;
+    handleClick(event) {
+        if (!this.placementAsset || !this.ground) return;
 
         const rect = this.renderer.domElement.getBoundingClientRect();
         this.mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
         this.mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
 
         this.raycaster.setFromCamera(this.mouse, this.camera);
-        const intersects = this.raycaster.intersectObject(this.ground, true);
+        const intersects = this.raycaster.intersectObject(this.ground, false);
 
-        if (intersects.length === 0) return;
+        if (intersects.length > 0) {
+            const point = intersects[0].point;
 
-        const point = intersects[0].point;
+            const half = this.plotSize / 2;
+            let x = THREE.MathUtils.clamp(point.x, -half, half);
+            let z = THREE.MathUtils.clamp(point.z, -half, half);
 
-        // Clamp within plot
-        const half = this.plotSize / 2 - 0.1;
-        point.x = Math.max(-half, Math.min(half, point.x));
-        point.z = Math.max(-half, Math.min(half, point.z));
-        point.y = 0;
+            const snap = 0.5;
+            x = Math.round(x / snap) * snap;
+            z = Math.round(z / snap) * snap;
 
-        const assetToPlace = this.placement.asset;
-        this.startPlacement(null); // clear placement state and preview
+            const spawnPoint = new THREE.Vector3(x, 0, z);
+            this.spawnAssetAt(this.placementAsset, spawnPoint);
 
-        this.spawnAsset(assetToPlace, point);
+            // clear placement after one placement
+            this.setPlacementAsset(null);
+        }
     }
 
-    spawnAsset(asset, position) {
+    spawnAsset(asset) {
         if (!asset || !asset.url) return;
 
-        // Position: provided by placement, or random near center
-        let x, z;
-        if (position) {
-            x = position.x;
-            z = position.z;
-        } else {
-            const half = this.plotSize / 2 - 1;
-            x = (Math.random() * 2 - 1) * half;
-            z = (Math.random() * 2 - 1) * half;
-        }
+        const half = this.plotSize / 2 - 1;
+        const x = (Math.random() * 2 - 1) * half;
+        const z = (Math.random() * 2 - 1) * half;
+        const point = new THREE.Vector3(x, 0, z);
+
+        this.spawnAssetAt(asset, point);
+    }
+
+    spawnAssetAt(asset, position) {
+        if (!asset || !asset.url || !position) return;
 
         // Try to infer extension for safer loader selection
         const ext = (
             asset.extension ||
-            asset.url.split('.').pop().split('?')[0]
-        || ''
+            asset.url.split('.').pop().split('?')[0] ||
+            ''
         ).toLowerCase();
 
         if (asset.type === 'model') {
@@ -405,7 +390,7 @@ export class World {
 
                         const wrapper = new THREE.Group();
                         wrapper.add(model);
-                        wrapper.position.set(x, 0, z);
+                        wrapper.position.set(position.x, 0, position.z);
                         
                         // Shadow setup
                         model.traverse(node => {
@@ -444,7 +429,7 @@ export class World {
 
                         const wrapper = new THREE.Group();
                         wrapper.add(model);
-                        wrapper.position.set(x, 0, z);
+                        wrapper.position.set(position.x, 0, position.z);
 
                         // Shadow setup
                         model.traverse(node => {
@@ -490,7 +475,7 @@ export class World {
                     side: THREE.DoubleSide
                 });
                 const mesh = new THREE.Mesh(geo, mat);
-                mesh.position.set(x, height/2, z);
+                mesh.position.set(position.x, height / 2, position.z);
                 mesh.castShadow = true;
                 
                 // Face camera initially (yaw only)

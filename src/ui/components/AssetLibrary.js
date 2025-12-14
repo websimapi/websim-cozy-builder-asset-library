@@ -7,7 +7,7 @@ import { Icon3D, IconImage, IconUpload, IconChevronLeft, IconChevronRight } from
 
 const html = htm.bind(React.createElement);
 
-export function AssetLibrary({ onSpawn }) {
+export function AssetLibrary({ onAssetSelected, selectedAsset }) {
     const [assets, setAssets] = useState([]);
     const [category, setCategory] = useState('all'); 
     const [showUpload, setShowUpload] = useState(false);
@@ -98,7 +98,13 @@ export function AssetLibrary({ onSpawn }) {
                     </div>
                 ` : html`
                     ${[...filteredAssets].reverse().map(asset => html`
-                        <${AssetCard} key=${asset.id} asset=${asset} onClick=${onSpawn} />
+                        <div style=${{ display: 'inline-block' }}>
+                            <${AssetCard} 
+                                key=${asset.id} 
+                                asset=${asset} 
+                                onClick=${onAssetSelected} 
+                            />
+                        </div>
                     `)}
                 `}
             </div>
