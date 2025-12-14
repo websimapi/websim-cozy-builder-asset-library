@@ -1,11 +1,7 @@
 import './ui/App.jsx';
 
-// Initialize Sync
+// Ensure data manager starts immediately
 import { dataManager } from './data/store.js';
 
-console.log("Cozy Builder initialized.");
-
-import './ui/App.jsx';
-
-console.log("Cozy Builder initialized. Loading modules...");
+console.log("Cozy Builder: Main module loaded.");
 
