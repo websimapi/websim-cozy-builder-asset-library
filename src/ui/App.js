@@ -67,6 +67,7 @@ function UploadModal({ onClose, onUpload }) {
     const [isDragging, setIsDragging] = useState(false);
     const [processing, setProcessing] = useState(false);
     const [statusText, setStatusText] = useState("Drag & Drop or Click");
+    const fileInputRef = useRef(null);
 
     const handleFile = async (file) => {
         setProcessing(true);
@@ -120,7 +121,12 @@ function UploadModal({ onClose, onUpload }) {
                         transition: 'all 0.2s ease',
                         cursor: 'pointer'
                     }}
-                    onClick=${() => !processing && document.getElementById('file-input').click()}
+                    onClick=${() => {
+                        // Trigger file input programmatically
+                        if (!processing && fileInputRef.current) {
+                            fileInputRef.current.click();
+                        }
+                    }}
                 >
                     ${processing ? html`
                         <div className="spinner" style=${{
@@ -134,9 +140,16 @@ function UploadModal({ onClose, onUpload }) {
                         </div>
                         <span style=${{fontWeight:'500'}}>Click or Drop file</span>
                         <span style=${{fontSize:'12px', color:'#a0aec0'}}>.glb, .png, .jpg</span>
-                        <input type="file" style=${{display: 'none'}} id="file-input" onChange=${(e) => {
-                            if(e.target.files[0]) handleFile(e.target.files[0]);
-                        }} />
+                        <input 
+                            type="file" 
+                            style=${{display: 'none'}} 
+                            ref=${fileInputRef} 
+                            onClick=${(e) => e.stopPropagation()} 
+                            onChange=${(e) => {
+                                if(e.target.files[0]) handleFile(e.target.files[0]);
+                                e.target.value = ''; // Reset to allow same file selection again
+                            }} 
+                        />
                     `}
                 </div>
             </div>
