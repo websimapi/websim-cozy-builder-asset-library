@@ -102,12 +102,23 @@ class DataManager {
         }
 
         try {
-            // 1. Upload to Blob Storage
-            const url = await websim.upload(file);
+            // 1. Upload to Blob Storage (or fall back to local blob URL)
+            let url;
+            try {
+                if (window.websim && typeof window.websim.upload === 'function') {
+                    url = await window.websim.upload(file);
+                } else {
+                    console.warn("websim.upload not available, using local object URL for asset.");
+                    url = URL.createObjectURL(file);
+                }
+            } catch (uploadError) {
+                console.warn("Upload via websim failed, falling back to local object URL.", uploadError);
+                url = URL.createObjectURL(file);
+            }
 
             // 2. Generate Metadata (Simulated AI)
             const metadata = {
-                id: crypto.randomUUID(),
+                id: (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(16).slice(2),
                 name: file.name.split('.')[0],
                 fullName: file.name,
                 type: type, // 'model', 'image', 'audio'
@@ -115,17 +126,28 @@ class DataManager {
                 extension: file.name.split('.').pop(),
                 size: file.size,
                 uploaded_at: new Date().toISOString(),
-                description: `Auto-generated: A ${type} file uploaded by ${this.currentUser.username}`
+                description: `Auto-generated: A ${type} file uploaded by ${this.currentUser?.username || 'guest'}`
             };
 
             // 3. Append to Column 1 (Assets)
             const currentAssets = this.userRecord.column_1 || [];
             const newAssets = [...currentAssets, metadata];
 
-            await room.collection('user_data').update(this.userRecord.id, {
-                column_1: newAssets
-            });
+            try {
+                await room.collection('user_data').update(this.userRecord.id, {
+                    column_1: newAssets
+                });
+            } catch (remoteError) {
+                console.warn("Remote user_data update failed; using local-only asset list.", remoteError);
+            }
 
+            // 4. Always update local cache so UI reflects the new asset immediately
+            this.userRecord = {
+                ...(this.userRecord || {}),
+                column_1: newAssets
+            };
+            this.parseAssets();
+            this.notify();
         } catch (e) {
             console.error("Asset upload failed:", e);
         }
