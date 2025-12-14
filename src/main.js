@@ -1,6 +1,6 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
-import { App } from './ui/App.jsx';
+import { App } from './ui/App.js';
 import { dataManager } from './data/store.js';
 
 console.log("Cozy Builder: Main module loaded.");
